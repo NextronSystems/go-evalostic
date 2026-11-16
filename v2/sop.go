@@ -61,7 +61,10 @@ func getUnsortedAndPaths(n node) []andPath {
 		c2 := getUnsortedAndPaths(v.node2)
 		for _, andPathC1 := range c1 {
 			for _, andPathC2 := range c2 {
-				res = append(res, append(andPathC1, andPathC2...))
+				path := make(andPath, 0, len(andPathC1)+len(andPathC2))
+				path = append(path, andPathC1...)
+				path = append(path, andPathC2...)
+				res = append(res, path)
 			}
 		}
 		return res

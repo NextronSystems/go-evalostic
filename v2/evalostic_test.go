@@ -223,6 +223,22 @@ var TheTestConditions = []Condition{
 		),
 	),
 
+	// regression: the and paths of NOT "c" AND (NOT "c" OR NOT "b") shared their backing array,
+	// so one path was overwritten and strings containing "b" did not match anymore
+	not(
+		or(
+			or(
+				val("d"),
+				val("f"),
+			),
+			val("c"),
+			and(
+				val("c"),
+				val("b"),
+			),
+		),
+	),
+
 	// END
 }
 
@@ -247,10 +263,10 @@ func TestEvalosticAgainstStringContains(t *testing.T) {
 			t.Fatalf("parse %s: %s", condition, err)
 		}
 		// prepare the two matchers
-		matcher1 := func(str string) bool {
+		matcher1 := cond.Match
+		matcher2 := func(str string) bool {
 			return len(ev.Match(str)) > 0
 		}
-		matcher2 := cond.Match
 		compareStrings := []string{""}
 		for _, str := range allStrings {
 			deepCopy := make([]string, len(compareStrings), len(compareStrings)*2)
