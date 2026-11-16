@@ -384,26 +384,29 @@ var ev *Evalostic
 
 var validCharacters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
+// rng is used instead of the global source, because rand.Seed() is a no-op since Go 1.24
+var rng = rand.New(rand.NewSource(0))
+
 func randomString(chars int) string {
 	res := make([]byte, chars)
 	for i := 0; i < chars; i++ {
-		res[i] = validCharacters[rand.Intn(len(validCharacters))]
+		res[i] = validCharacters[rng.Intn(len(validCharacters))]
 	}
 	return string(res)
 }
 
 func randomCondition(maxConcatenations int) string {
 	var cond string
-	if rand.Intn(5) == 0 {
+	if rng.Intn(5) == 0 {
 		cond += "NOT "
 	}
 	if cond != "" && !strings.HasSuffix(cond, " ") {
 		cond += " "
 	}
-	concatenations := rand.Intn(maxConcatenations)
+	concatenations := rng.Intn(maxConcatenations)
 	if concatenations == 0 {
-		cond += strconv.Quote(randomString(3 + rand.Intn(20)))
-		if rand.Intn(2) == 0 {
+		cond += strconv.Quote(randomString(3 + rng.Intn(20)))
+		if rng.Intn(2) == 0 {
 			cond += "i"
 		}
 		return cond
@@ -411,7 +414,7 @@ func randomCondition(maxConcatenations int) string {
 	cond += "("
 	for i := 0; i < concatenations+1; i++ {
 		if i > 0 {
-			cond += []string{" AND ", " OR "}[rand.Intn(2)]
+			cond += []string{" AND ", " OR "}[rng.Intn(2)]
 		}
 		cond += randomCondition(maxConcatenations - 1)
 	}
@@ -420,7 +423,7 @@ func randomCondition(maxConcatenations int) string {
 }
 
 func Example_randomString() {
-	rand.Seed(0)
+	rng.Seed(0)
 	fmt.Println(randomString(10))
 	fmt.Println(randomString(10))
 	// Output:
@@ -429,7 +432,7 @@ func Example_randomString() {
 }
 
 func Example_randomCondition() {
-	rand.Seed(0)
+	rng.Seed(0)
 	fmt.Println(randomCondition(3))
 	fmt.Println(randomCondition(3))
 	fmt.Println(randomCondition(3))
@@ -456,7 +459,7 @@ func BenchmarkNew(b *testing.B) {
 }
 
 func benchmarkNewN(b *testing.B, n int) {
-	rand.Seed(0)
+	rng.Seed(0)
 	conds := make([]string, n)
 	for i := 0; i < n; i++ {
 		conds[i] = randomCondition(3)
@@ -486,7 +489,7 @@ func BenchmarkNew_100000(b *testing.B) { benchmarkNewN(b, 100000) }
 var matches []int
 
 func benchmarkMatchN(b *testing.B, n int) {
-	rand.Seed(0)
+	rng.Seed(0)
 	conds := make([]string, n)
 	for i := 0; i < n; i++ {
 		conds[i] = randomCondition(3)

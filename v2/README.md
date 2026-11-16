@@ -1,6 +1,5 @@
-[![GoDoc](https://godoc.org/github.com/Codehardt/go-evalostic?status.svg)](https://godoc.org/github.com/Codehardt/go-evalostic)
-[![Build Status](https://travis-ci.org/Codehardt/go-evalostic.svg?branch=master)](https://travis-ci.org/Codehardt/go-evalostic)
-[![Go Report Card](https://goreportcard.com/badge/github.com/Codehardt/go-evalostic)](https://goreportcard.com/report/github.com/Codehardt/go-evalostic)
+[![Go Reference](https://pkg.go.dev/badge/github.com/NextronSystems/go-evalostic/v2.svg)](https://pkg.go.dev/github.com/NextronSystems/go-evalostic/v2)
+[![Go Report Card](https://goreportcard.com/badge/github.com/NextronSystems/go-evalostic)](https://goreportcard.com/report/github.com/NextronSystems/go-evalostic)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## go-evalostic
