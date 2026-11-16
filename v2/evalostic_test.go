@@ -317,7 +317,7 @@ func TestEvalostic(t *testing.T) {
 	assertTrue(t, sameIntegers(e.Match("12"), []int{}))
 }
 
-func ExampleMatch() {
+func ExampleEvalostic_Match() {
 	e, err := New([]string{
 		`"foo" OR "bar"`,
 		`NOT "foo" AND ("bar" OR "baz")`,
@@ -338,7 +338,7 @@ func ExampleMatch() {
 	// []
 }
 
-func ExampleMatch_Negative() {
+func ExampleEvalostic_Match_negative() {
 	e, err := New([]string{
 		`NOT "foo" AND NOT "bar"`,
 		`NOT ("foo" AND "bar" AND "baz")`,
@@ -362,7 +362,7 @@ func ExampleMatch_Negative() {
 	// [0 1 2]
 }
 
-func ExampleMatch_CaseInsensitive() {
+func ExampleEvalostic_Match_caseInsensitive() {
 	e, err := New([]string{
 		`"FOO"i AND "bar"`,
 	})

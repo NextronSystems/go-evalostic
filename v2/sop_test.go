@@ -49,7 +49,7 @@ func dnf(cond string) {
 	}
 }
 
-func ExampleDNF() {
+func Example_dnf() {
 	dnf(`"a"`)
 	dnf(`NOT "a"`)
 	dnf(`"a" AND "b"`)
@@ -95,7 +95,7 @@ func ExampleDNF() {
 	// after: "a" OR "b" OR "c" OR "d"
 }
 
-func ExampleSOP() {
+func Example_sop() {
 	sop(`"a"`)
 	sop(`NOT "a"`)
 	sop(`"a" AND "b"`)
@@ -159,7 +159,7 @@ func ExampleSOP() {
 	// after: (("a" OR "b") OR ("c" OR "d"))
 }
 
-func ExampleSOP_2() {
+func Example_sop_2() {
 	sop(`("a" OR "b" OR "c") AND NOT ("d" OR "e" OR "f") AND ("g" OR "h" OR "i")`)
 	sop(`NOT (("a" OR "b" OR "c") AND NOT ("d" OR "e" OR "f") AND ("g" OR "h" OR "i"))`)
 	// Output:
@@ -171,7 +171,7 @@ func ExampleSOP_2() {
 	// after: ((((NOT "a" AND NOT "b") AND NOT "c") OR (("d" OR "e") OR "f")) OR ((NOT "g" AND NOT "h") AND NOT "i"))
 }
 
-func ExampleMatchStrings() {
+func Example_getAndPaths() {
 	ms := func(cond string) {
 		n, err := parseCondition(cond)
 		if err != nil {
