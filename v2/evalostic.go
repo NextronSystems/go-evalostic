@@ -4,32 +4,43 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/Codehardt/go-ahocorasick"
 )
 
 // Evalostic is a matcher that can apply multiple conditions on a string with some performance optimizations.
-// The biggest optimization is that only conditions that contain at least one keyword of the string will be checked,
-// these strings will be filtered with the Aho-Corasick algorithm. The only exception are negative conditions (see comment of: Negatives() function).
+// All strings of all conditions are searched at once with the Aho-Corasick algorithm. A condition is only evaluated
+// if one of its index strings was found, which are the strings that can change its result (see indexStrings). All
+// other conditions have the same result as for a string without any known strings, which is evaluated once in New().
 type Evalostic struct {
-	decisionTree *decisionTreeNode
+	program      program
+	roots        []int // root instruction of every condition
+	emptyMatches []int // conditions that match strings without any of their strings, e.g. NOT "foo"
 	ahoCorasick  ahocorasick.AhoCorasick
-	strings      map[string]int
-	mapping      map[int][]int // which string can be found in which condition
-	orig         []node        // original conditions for export
+	mapping      [][]int // which string triggers the evaluation of which condition
+	matchStates  *sync.Pool
+	orig         []node // original conditions for export
+}
+
+// matchState is the reusable scratch space of a Match call
+type matchState struct {
+	found     bitset // indices of the found strings
+	evaluated bitset // indices of the already evaluated conditions
 }
 
 // New builds a new Evalostic matcher that compiles all conditions to one big rule set that can be applied to strings.
 func New(conditions []string) (*Evalostic, error) {
 	e := Evalostic{
-		decisionTree: new(decisionTreeNode),
-		strings:      make(map[string]int),
-		mapping:      make(map[int][]int),
+		roots:       make([]int, len(conditions)),
+		matchStates: new(sync.Pool),
 	}
-	e.decisionTree.children = make(map[decisionTreeEntry]*decisionTreeNode)
-	e.decisionTree.notChildren = make(map[decisionTreeEntry]*decisionTreeNode)
-	var stringCounter int
-	var allStrings []string
+	var (
+		allStrings      []string
+		stringIndices   = make(map[string]int)
+		conditionCounts []int // number of conditions that contain a string
+		lastCondition   []int // last condition that contains a string
+	)
 	for i, condition := range conditions {
 		if condition == "" {
 			continue // allow empty conditions but ignore them
@@ -41,48 +52,79 @@ func New(conditions []string) (*Evalostic, error) {
 		e.orig = append(e.orig, root)
 		condStrings, _ := extractStrings(root)
 		for _, str := range condStrings {
-			strI, ok := e.strings[str]
+			strI, ok := stringIndices[str]
 			if !ok {
-				strI = stringCounter
-				stringCounter++
-				e.strings[str] = strI
+				strI = len(allStrings)
+				stringIndices[str] = strI
 				allStrings = append(allStrings, str)
+				conditionCounts = append(conditionCounts, 0)
+				lastCondition = append(lastCondition, -1)
 			}
-			e.mapping[strI] = append(e.mapping[strI], i)
+			if lastCondition[strI] != i { // a string can occur multiple times in a condition
+				lastCondition[strI] = i
+				conditionCounts[strI]++
+			}
 		}
-		for _, mp := range getAndPaths(root.SOP()) {
-			mpi := make(andPathIndex, len(mp))
-			for i, ms := range mp {
-				mpi[i] = andStringIndex{not: ms.not, i: e.strings[ms.str]}
+		e.roots[i] = e.program.compile(root, stringIndices)
+	}
+	e.mapping = make([][]int, len(allStrings))
+	for i, condition := range conditions {
+		if condition == "" {
+			continue
+		}
+		strs, _, emptyResult := e.program.indexStrings(e.roots[i], conditionCounts)
+		for _, strI := range strs {
+			if m := e.mapping[strI]; len(m) == 0 || m[len(m)-1] != i { // index strings can contain duplicates
+				e.mapping[strI] = append(m, i)
 			}
-			e.decisionTree.add(mpi, i)
+		}
+		if emptyResult {
+			e.emptyMatches = append(e.emptyMatches, i)
 		}
 	}
 	if len(allStrings) > 0 {
 		e.ahoCorasick = ahocorasick.New(allStrings)
 	}
+	numStrings, numConditions := len(allStrings), len(conditions)
+	e.matchStates.New = func() interface{} {
+		return &matchState{found: newBitset(numStrings), evaluated: newBitset(numConditions)}
+	}
 	return &e, nil
 }
 
-// Match returns all indices of conditions that match the provided string
+// Match returns all indices of conditions that match the provided string. It is safe for concurrent use.
 func (e *Evalostic) Match(s string) (matchingConditions []int) {
-	var (
-		stringIndicesCaseInsensitive []int
-	)
+	var foundStrings []int
 	if e.ahoCorasick != nil {
-		stringIndicesCaseInsensitive = e.ahoCorasick.Match(strings.ToLower(s))
+		foundStrings = e.ahoCorasick.Match(strings.ToLower(s))
 	}
-	decisionTreeEntries := make(map[decisionTreeEntry]struct{})
-	for _, si := range stringIndicesCaseInsensitive {
-		decisionTreeEntries[decisionTreeEntry{value: si}] = struct{}{}
+	state := e.matchStates.Get().(*matchState)
+	for _, strI := range foundStrings {
+		state.found.set(strI)
 	}
-	unique := make(map[int]struct{})
-	for _, matchingCondition := range e.decisionTree.find(decisionTreeEntries) {
-		unique[matchingCondition] = struct{}{}
+	for _, strI := range foundStrings {
+		for _, cond := range e.mapping[strI] {
+			if state.evaluated.has(cond) {
+				continue
+			}
+			state.evaluated.set(cond)
+			if e.program.eval(e.roots[cond], state.found) {
+				matchingConditions = append(matchingConditions, cond)
+			}
+		}
 	}
-	for matchingCondition := range unique {
-		matchingConditions = append(matchingConditions, matchingCondition)
+	for _, cond := range e.emptyMatches {
+		if !state.evaluated.has(cond) {
+			matchingConditions = append(matchingConditions, cond)
+		}
 	}
+	for _, strI := range foundStrings {
+		state.found.unset(strI)
+		for _, cond := range e.mapping[strI] {
+			state.evaluated.unset(cond)
+		}
+	}
+	e.matchStates.Put(state)
 	sort.Ints(matchingConditions)
 	return
 }

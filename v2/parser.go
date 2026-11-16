@@ -12,7 +12,6 @@ type node interface {
 	Condition() string
 	Value() string
 	Children() (node, node)
-	SOP() node
 }
 
 type (

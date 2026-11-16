@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -333,6 +334,82 @@ func TestEvalostic(t *testing.T) {
 	assertTrue(t, sameIntegers(e.Match("12"), []int{}))
 }
 
+// largeConditions returns ("a00" OR "b00") AND ("a01" OR "b01") AND ... and "x" AND NOT (("a00" AND "b00") OR ...)
+// with n groups, the disjunctive normal form of both conditions has 2^n terms
+func largeConditions(n int) []string {
+	orGroups, andGroups := make([]string, n), make([]string, n)
+	for i := 0; i < n; i++ {
+		orGroups[i] = fmt.Sprintf(`("a%02d" OR "b%02d")`, i, i)
+		andGroups[i] = fmt.Sprintf(`("a%02d" AND "b%02d")`, i, i)
+	}
+	return []string{strings.Join(orGroups, " AND "), `"x" AND NOT (` + strings.Join(andGroups, " OR ") + `)`}
+}
+
+// groupStrings returns the strings of the groups [from, to) of largeConditions with the given prefix
+func groupStrings(prefix string, from, to int) string {
+	var res []string
+	for i := from; i < to; i++ {
+		res = append(res, fmt.Sprintf("%s%02d", prefix, i))
+	}
+	return strings.Join(res, " ")
+}
+
+// TestLargeConditions checks conditions that ran out of memory with ~24 groups, when they were still converted to a
+// disjunctive normal form
+func TestLargeConditions(t *testing.T) {
+	e, err := New(largeConditions(64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name     string
+		input    string
+		expected []int
+	}{
+		{"all a", "x " + groupStrings("a", 0, 64), []int{0, 1}},
+		{"last group missing", "x " + groupStrings("a", 0, 63), []int{1}},
+		{"last group with b", "x " + groupStrings("a", 0, 63) + " b63", []int{0, 1}},
+		{"all a and b", "x " + groupStrings("a", 0, 64) + " " + groupStrings("b", 0, 64), []int{0}},
+		{"single group", "x a42 b42", []int{}},
+	} {
+		if actual := e.Match(test.input); !sameIntegers(actual, test.expected) {
+			t.Errorf("%s: expected %v, got %v", test.name, test.expected, actual)
+		}
+	}
+}
+
+// TestMatchConcurrently calls Match from several goroutines, run it with -race to find shared state
+func TestMatchConcurrently(t *testing.T) {
+	r := rand.New(rand.NewSource(0))
+	conds := make([]string, 200)
+	for i := range conds {
+		conds[i] = randomConditionTree(r, fuzzMaxDepth, true).ToCondition()
+	}
+	e, err := New(conds)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := make([][]int, len(fuzzInputs))
+	for i, input := range fuzzInputs {
+		expected[i] = e.Match(input)
+	}
+	var wg sync.WaitGroup
+	for g := 0; g < 8; g++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := range fuzzInputs {
+				i := (j + g*len(fuzzInputs)/8) % len(fuzzInputs) // every goroutine starts at another input
+				if actual := e.Match(fuzzInputs[i]); !sameIntegers(actual, expected[i]) {
+					t.Errorf("goroutine %d, string %q: expected %v, got %v", g, fuzzInputs[i], expected[i], actual)
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
+}
+
 func ExampleEvalostic_Match() {
 	e, err := New([]string{
 		`"foo" OR "bar"`,
@@ -532,3 +609,43 @@ func BenchmarkEvalostic_Match_100(b *testing.B)    { benchmarkMatchN(b, 100) }
 func BenchmarkEvalostic_Match_1000(b *testing.B)   { benchmarkMatchN(b, 1000) }
 func BenchmarkEvalostic_Match_10000(b *testing.B)  { benchmarkMatchN(b, 10000) }
 func BenchmarkEvalostic_Match_100000(b *testing.B) { benchmarkMatchN(b, 100000) }
+
+func BenchmarkNew_LargeConditions(b *testing.B) {
+	conds := largeConditions(64)
+	var err error
+	for i := 0; i < b.N; i++ {
+		ev, err = New(conds)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkEvalostic_Match_LargeConditions(b *testing.B) {
+	e, err := New(largeConditions(64))
+	if err != nil {
+		b.Fatal(err)
+	}
+	s := "x " + groupStrings("a", 0, 64) + " " + groupStrings("b", 0, 64)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		matches = e.Match(s)
+	}
+}
+
+// BenchmarkEvalostic_Match_CommonString matches many conditions that share a common string against a string that
+// contains only the common string
+func BenchmarkEvalostic_Match_CommonString(b *testing.B) {
+	conds := make([]string, 100000)
+	for i := range conds {
+		conds[i] = fmt.Sprintf(`"\\windows\\" AND "tool%d.exe"`, i)
+	}
+	e, err := New(conds)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		matches = e.Match(`C:\Windows\System32\cmd.exe`)
+	}
+}
